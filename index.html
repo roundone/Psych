@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Voice & Chat GPT</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <h1>Voice & Chat GPT</h1>
+
+        <div id="credentials-section">
+            <label for="api-key-input">OpenAI API Key:</label>
+            <input type="password" id="api-key-input" placeholder="Enter your OpenAI API Key">
+            <button id="save-key-button">Save Key (Session)</button>
+            <p class="security-note">Note: API key is stored in session storage and required for each session. For better security, avoid using sensitive keys in client-side applications.</p>
+        </div>
+
+        <div id="controls">
+            <button id="mode-toggle-button">Switch to Voice Mode</button>
+            <button id="tts-toggle-button">Disable TTS</button>
+            <button id="clear-history-button">Clear History</button>
+        </div>
+
+        <div id="transcript-container">
+            <div id="transcript">
+                <!-- Conversation history will be displayed here -->
+            </div>
+        </div>
+
+        <div id="input-area">
+            <!-- Text Input Mode -->
+            <div id="text-input-mode">
+                <textarea id="text-input" placeholder="Type your message here..."></textarea>
+                <button id="send-button">Send</button>
+            </div>
+
+            <!-- Voice Input Mode (Initially Hidden) -->
+            <div id="voice-input-mode" class="hidden">
+                <button id="mic-button">Start Listening</button>
+                <div id="listening-indicator" class="hidden"></div>
+                <span>Listening...</span>
+            </div>
+        </div>
+
+        <div id="error-display"></div>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

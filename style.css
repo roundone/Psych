@@ -1,0 +1,219 @@
+/* Basic Reset & Body */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html, body {
+    height: 100%;
+    font-family: sans-serif;
+    background-color: #f4f4f4;
+}
+
+#app-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-width: 600px; /* Limit width on larger screens */
+    margin: 0 auto;
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+h1 {
+    text-align: center;
+    padding: 15px;
+    background-color: #4CAF50;
+    color: white;
+    font-size: 1.5em;
+}
+
+/* Credentials Section */
+#credentials-section {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    background-color: #f9f9f9;
+}
+#credentials-section label {
+    display: block;
+    margin-bottom: 5px;
+}
+#credentials-section input[type="password"] {
+    width: calc(100% - 150px); /* Adjust width based on button */
+    padding: 8px;
+    margin-right: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+#credentials-section button {
+    padding: 8px 12px;
+    cursor: pointer;
+}
+.security-note {
+    font-size: 0.8em;
+    color: #666;
+    margin-top: 5px;
+}
+
+
+/* Controls */
+#controls {
+    display: flex;
+    justify-content: space-around;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+#controls button {
+    padding: 10px 15px;
+    font-size: 0.9em;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background-color: #e7e7e7;
+}
+#controls button:hover {
+    background-color: #ddd;
+}
+
+/* Transcript Area */
+#transcript-container {
+    flex-grow: 1; /* Takes available space */
+    overflow-y: auto; /* Enables scrolling */
+    padding: 15px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    flex-direction: column; /* Stack messages vertically */
+}
+
+#transcript {
+    display: flex;
+    flex-direction: column;
+    gap: 10px; /* Space between messages */
+}
+
+.message {
+    padding: 10px 15px;
+    border-radius: 15px;
+    max-width: 80%;
+    word-wrap: break-word; /* Prevent long words from overflowing */
+}
+
+.user-message {
+    background-color: #dcf8c6;
+    align-self: flex-end; /* Align user messages to the right */
+    border-bottom-right-radius: 5px;
+}
+
+.assistant-message {
+    background-color: #e5e5ea;
+    align-self: flex-start; /* Align assistant messages to the left */
+    border-bottom-left-radius: 5px;
+}
+
+.date-marker {
+    font-style: italic;
+    color: #666;
+    text-align: center;
+    font-size: 0.85em;
+    background-color: transparent;
+    align-self: center;
+    margin: 10px 0;
+}
+
+/* Input Area */
+#input-area {
+    padding: 15px;
+    background-color: #f0f0f0;
+}
+
+#text-input-mode {
+    display: flex;
+    align-items: center;
+}
+
+#text-input {
+    flex-grow: 1;
+    min-height: 40px; /* Start height */
+    max-height: 120px; /* Limit growth */
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 20px;
+    resize: none; /* Disable manual resize */
+    overflow-y: auto; /* Scroll if needed */
+    margin-right: 10px;
+    font-size: 1em;
+}
+
+#send-button {
+    padding: 10px 20px;
+    font-size: 1em;
+    cursor: pointer;
+    border: none;
+    background-color: #4CAF50;
+    color: white;
+    border-radius: 20px;
+}
+#send-button:hover {
+    background-color: #45a049;
+}
+
+#voice-input-mode {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+}
+
+#mic-button {
+    padding: 15px;
+    font-size: 1em;
+    cursor: pointer;
+    border-radius: 50%; /* Make it round */
+    width: 60px;
+    height: 60px;
+    border: none;
+    background-color: #f44336; /* Red for start */
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#mic-button.listening {
+    background-color: #007bff; /* Blue when listening */
+}
+
+#listening-indicator {
+    width: 15px;
+    height: 15px;
+    background-color: red;
+    border-radius: 50%;
+    animation: pulse 1.5s infinite ease-in-out;
+}
+
+#voice-input-mode span {
+    font-style: italic;
+    color: #555;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 0.7; }
+    50% { transform: scale(1.2); opacity: 1; }
+    100% { transform: scale(1); opacity: 0.7; }
+}
+
+
+/* Error Display */
+#error-display {
+    color: red;
+    padding: 5px 15px;
+    font-size: 0.9em;
+    min-height: 1.2em; /* Reserve space */
+    text-align: center;
+}
+
+/* Utility Classes */
+.hidden {
+    display: none !important; /* Use important to override default flex/block */
+}

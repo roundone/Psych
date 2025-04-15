@@ -164,3 +164,14 @@ html, body {
 .hidden {
     display: none !important; /* Force hide */
 }
+
+/* Optional: Style for disabled button */
+#controls button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    color: #666;
+}
+#input-area button:disabled {
+     background-color: #ccc;
+     cursor: not-allowed;
+}

@@ -7,45 +7,33 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="app-container">
-        <h1>Voice & Chat GPT</h1>
-
-        <div id="credentials-section">
-            <label for="api-key-input">OpenAI API Key:</label>
-            <input type="password" id="api-key-input" placeholder="Enter your OpenAI API Key">
-            <button id="save-key-button">Save Key (Session)</button>
-            <p class="security-note">Note: API key is stored in session storage and required for each session. For better security, avoid using sensitive keys in client-side applications.</p>
+    <div id="app">
+        <div id="settings">
+            <label for="api-key">OpenAI API Key:</label>
+            <input type="password" id="api-key" placeholder="Paste your key here">
+            <button id="save-key-button">Save Key</button>
+            <p class="warning">
+                <strong>Warning:</strong> API key is stored in session storage and visible in browser tools. For personal use only. Do not share this page if using your key.
+            </p>
         </div>
 
         <div id="controls">
-            <button id="mode-toggle-button">Switch to Voice Mode</button>
-            <button id="tts-toggle-button">Disable TTS</button>
-            <button id="clear-history-button">Clear History</button>
+            <button id="mode-button">Switch to Voice Mode</button>
+            <button id="record-button" class="hidden">Start Recording</button>
+            <button id="tts-button">TTS: Enabled</button>
+            <button id="clear-button">Clear History</button>
         </div>
 
-        <div id="transcript-container">
-            <div id="transcript">
-                <!-- Conversation history will be displayed here -->
-            </div>
+        <div id="status-indicator">Ready</div>
+
+        <div id="transcript">
+            <!-- Conversation history will be loaded here -->
         </div>
 
         <div id="input-area">
-            <!-- Text Input Mode -->
-            <div id="text-input-mode">
-                <textarea id="text-input" placeholder="Type your message here..."></textarea>
-                <button id="send-button">Send</button>
-            </div>
-
-            <!-- Voice Input Mode (Initially Hidden) -->
-            <div id="voice-input-mode" class="hidden">
-                <button id="mic-button">Start Listening</button>
-                <div id="listening-indicator" class="hidden"></div>
-                <span>Listening...</span>
-            </div>
+            <input type="text" id="text-input" placeholder="Type your message...">
+            <button id="send-button">Send</button>
         </div>
-
-        <div id="error-display"></div>
-
     </div>
 
     <script src="script.js"></script>

@@ -1,617 +1,499 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // ==== DOM Elements ====
-    const apiKeyInput = document.getElementById('api-key-input');
-    const saveKeyButton = document.getElementById('save-key-button');
-    const modeToggleButton = document.getElementById('mode-toggle-button');
-    const ttsToggleButton = document.getElementById('tts-toggle-button');
-    const clearHistoryButton = document.getElementById('clear-history-button');
-    const transcriptDiv = document.getElementById('transcript');
-    const transcriptContainer = document.getElementById('transcript-container');
-    const textInputModeDiv = document.getElementById('text-input-mode');
-    const textInput = document.getElementById('text-input');
-    const sendButton = document.getElementById('send-button');
-    const voiceInputModeDiv = document.getElementById('voice-input-mode');
-    const micButton = document.getElementById('mic-button');
-    const listeningIndicator = document.getElementById('listening-indicator');
-    const errorDisplay = document.getElementById('error-display');
+'use strict';
 
-    // ==== CREDENTIALS SECTION ====
-    // API key is stored in session storage for security reasons (cleared when browser tab closes)
-    // Security Note: Storing API keys client-side is inherently insecure for production.
-    // A backend proxy is the recommended approach for protecting keys.
-    let OPENAI_API_KEY = sessionStorage.getItem('openai_api_key') || "";
-    // =============================
+// --- Configuration ---
+const OPENAI_API_CHAT_MODEL = "gpt-4.1"; // Or your preferred chat model
+const OPENAI_API_STT_MODEL = "gpt-4o-mini-transcribe"; // Or whisper-1
+const OPENAI_API_TTS_MODEL = "gpt-4o-mini-tts"; // Or tts-1
+const SYSTEM_PROMPT = "You are a helpful assistant. Keep your responses concise and clear.";
+// --- IMPORTANT: API Key is handled insecurely below for simplicity ---
+// --- In a real app, NEVER embed keys directly or store in localStorage/sessionStorage ---
 
-    // ==== OpenAI Models ====
-    const CHAT_MODEL = "gpt-4o"; // Or "gpt-4-turbo", "gpt-4.1" - verify latest/preferred model
-    const TTS_MODEL = "tts-1"; // Or "tts-1-hd", "gpt-4o-mini-tts" - verify model
-    const STT_MODEL = "whisper-1"; // Or "gpt-4o-mini-transcribe" - verify model
+// --- DOM Elements ---
+const apiKeyInput = document.getElementById('api-key');
+const saveKeyButton = document.getElementById('save-key-button');
+const modeButton = document.getElementById('mode-button');
+const recordButton = document.getElementById('record-button');
+const ttsButton = document.getElementById('tts-button');
+const clearButton = document.getElementById('clear-button');
+const statusIndicator = document.getElementById('status-indicator');
+const transcriptDiv = document.getElementById('transcript');
+const textInput = document.getElementById('text-input');
+const sendButton = document.getElementById('send-button');
+const inputArea = document.getElementById('input-area');
 
-    // ==== System Prompt ====
-    const SYSTEM_PROMPT = "You are a helpful assistant."; // Editable in code
+// --- State Variables ---
+let apiKey = null;
+let conversationHistory = []; // Array of { role: 'user'/'assistant', content: 'message' }
+let currentMode = 'text'; // 'text' or 'voice'
+let isTTSenabled = true;
+let isListening = false;
+let mediaRecorder = null;
+let audioChunks = [];
+let lastMessageDate = null; // To track for daily markers
 
-    // ==== State Variables ====
-    let conversationHistory = []; // Array of { role: 'user'/'assistant', content: 'message', timestamp: Date }
-    let isVoiceMode = false;
-    let isTTSEnabled = true;
-    let isListening = false;
-    let mediaRecorder;
-    let audioChunks = [];
+// --- Initialization ---
+window.addEventListener('load', () => {
+    loadApiKey();
+    loadHistory();
+    updateUI();
+    addEventListeners();
+    renderTranscript(); // Render initial history
+});
 
-    // ==== Initialization ====
-    function initializeApp() {
-        loadApiKey();
-        loadHistory();
-        renderHistory();
-        updateUI();
-        attachEventListeners();
-        if (!OPENAI_API_KEY) {
-            displayError("Please enter your OpenAI API Key.");
+function addEventListeners() {
+    saveKeyButton.addEventListener('click', saveApiKey);
+    modeButton.addEventListener('click', toggleMode);
+    recordButton.addEventListener('click', toggleRecording);
+    ttsButton.addEventListener('click', toggleTTS);
+    clearButton.addEventListener('click', clearHistory);
+    sendButton.addEventListener('click', handleTextInput);
+    textInput.addEventListener('keypress', (event) => {
+        if (event.key === 'Enter') {
+            handleTextInput();
+        }
+    });
+}
+
+// --- UI Update Functions ---
+function updateUI() {
+    // Mode Button and Input Area
+    if (currentMode === 'voice') {
+        modeButton.textContent = 'Switch to Text Mode';
+        recordButton.classList.remove('hidden');
+        inputArea.classList.add('hidden'); // Hide text input in voice mode
+    } else {
+        modeButton.textContent = 'Switch to Voice Mode';
+        recordButton.classList.add('hidden');
+        inputArea.classList.remove('hidden'); // Show text input in text mode
+    }
+
+    // Record Button State
+    if (isListening) {
+        recordButton.textContent = 'Stop Recording';
+        recordButton.classList.add('active');
+        setStatus('Listening...');
+    } else {
+        recordButton.textContent = 'Start Recording';
+        recordButton.classList.remove('active');
+        // Don't overwrite other statuses like "Processing..." when not listening
+        if (statusIndicator.textContent === 'Listening...') {
+             setStatus('Ready');
         }
     }
 
-    function loadApiKey() {
-        OPENAI_API_KEY = sessionStorage.getItem('openai_api_key') || "";
-        if (OPENAI_API_KEY) {
-            apiKeyInput.value = "********"; // Mask if loaded
-            apiKeyInput.disabled = true;
-            saveKeyButton.textContent = "Key Saved";
-            saveKeyButton.disabled = true;
-        }
-    }
+    // TTS Button State
+    ttsButton.textContent = `TTS: ${isTTSenabled ? 'Enabled' : 'Disabled'}`;
+    ttsButton.style.backgroundColor = isTTSenabled ? '#5cb85c' : '#d9534f'; // Green/Red indication
+    ttsButton.style.color = 'white';
 
-    function saveApiKey() {
-        const key = apiKeyInput.value.trim();
-        if (key) {
-            OPENAI_API_KEY = key;
-            sessionStorage.setItem('openai_api_key', key);
-            apiKeyInput.value = "********"; // Mask after saving
-            apiKeyInput.disabled = true;
-            saveKeyButton.textContent = "Key Saved";
-            saveKeyButton.disabled = true;
-            displayError(""); // Clear previous errors
-            console.log("API Key saved to session storage.");
-        } else {
-            displayError("Please enter a valid API Key.");
-        }
-    }
 
-    function loadHistory() {
-        const storedHistory = localStorage.getItem('conversationHistory');
-        if (storedHistory) {
-            try {
-                conversationHistory = JSON.parse(storedHistory);
-                // Convert string timestamps back to Date objects
-                conversationHistory = conversationHistory.map(msg => ({
-                    ...msg,
-                    timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date() // Handle potential missing timestamps
-                }));
-            } catch (error) {
-                console.error("Failed to parse conversation history:", error);
-                localStorage.removeItem('conversationHistory'); // Clear corrupted data
-                conversationHistory = [];
+    // API Key Input State
+    if (apiKey) {
+        apiKeyInput.disabled = true;
+        saveKeyButton.textContent = 'Key Saved';
+        saveKeyButton.disabled = true;
+    } else {
+        apiKeyInput.disabled = false;
+        saveKeyButton.textContent = 'Save Key';
+        saveKeyButton.disabled = false;
+    }
+}
+
+function setStatus(message, isError = false) {
+    statusIndicator.textContent = message;
+    statusIndicator.style.color = isError ? '#d9534f' : '#555'; // Red for errors
+    console.log(`Status: ${message}`);
+    if (isError) {
+        console.error(`Error Status: ${message}`);
+    }
+}
+
+function renderTranscript() {
+    transcriptDiv.innerHTML = ''; // Clear existing content
+    let lastDate = null; // Track date for markers within render
+
+    conversationHistory.forEach(msg => {
+        // Check for daily marker logic during rendering
+        const messageDate = new Date(msg.timestamp); // Assuming messages have timestamps
+        if (msg.timestamp && (!lastDate || messageDate.toDateString() !== lastDate.toDateString())) {
+             if (lastDate) { // Don't add marker before the very first message
+                const marker = document.createElement('div');
+                marker.className = 'daily-marker';
+                marker.textContent = `--- ${messageDate.toLocaleDateString()} ---`;
+                transcriptDiv.appendChild(marker);
             }
-        } else {
-            conversationHistory = [];
+            lastDate = messageDate;
         }
-        console.log("History loaded:", conversationHistory);
-    }
 
-    function saveHistory() {
-        try {
-            localStorage.setItem('conversationHistory', JSON.stringify(conversationHistory));
-        } catch (error) {
-            console.error("Failed to save conversation history:", error);
-            displayError("Error saving history (LocalStorage might be full).");
-        }
-    }
 
-    function renderHistory() {
-        transcriptDiv.innerHTML = ''; // Clear existing messages
-        conversationHistory.forEach(message => {
-            addMessageToTranscript(message.role, message.content, message.isMarker);
-        });
-        scrollToBottom();
-    }
-
-    function addMessageToTranscript(role, content, isMarker = false) {
         const messageElement = document.createElement('div');
-        messageElement.classList.add('message');
-        if (isMarker) {
-            messageElement.classList.add('date-marker');
-        } else if (role === 'user') {
-            messageElement.classList.add('user-message');
-        } else if (role === 'assistant') {
-            messageElement.classList.add('assistant-message');
-        }
-        messageElement.textContent = content;
+        messageElement.classList.add('message', msg.role); // 'user' or 'assistant'
+
+        const roleElement = document.createElement('strong');
+        roleElement.textContent = msg.role === 'user' ? 'You:' : 'Assistant:';
+
+        const contentElement = document.createElement('span');
+        contentElement.textContent = msg.content; // Use textContent to prevent XSS
+
+        messageElement.appendChild(roleElement);
+        messageElement.appendChild(contentElement);
         transcriptDiv.appendChild(messageElement);
-        scrollToBottom();
-    }
-
-     function addDailyMarkerIfNeeded() {
-        if (conversationHistory.length === 0) return; // No history yet
-
-        const lastMessage = conversationHistory[conversationHistory.length - 1];
-        const lastMessageDate = lastMessage.timestamp;
-        const now = new Date();
-
-        // Check if the last message was on a different day (ignoring time)
-        if (lastMessageDate.toDateString() !== now.toDateString()) {
-            const dateString = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-            const timeString = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-            const markerContent = `It is now ${timeString}, on ${dateString}.`;
-
-            const markerMessage = {
-                role: 'system', // Use system or a custom role if needed
-                content: markerContent,
-                timestamp: now,
-                isMarker: true
-            };
-            conversationHistory.push(markerMessage);
-            addMessageToTranscript(markerMessage.role, markerMessage.content, true);
-            // No need to save history here, it will be saved after the user message
-        }
-    }
-
-
-    function scrollToBottom() {
-        // Use setTimeout to allow the DOM to update before scrolling
-        setTimeout(() => {
-            transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
-        }, 0);
-    }
-
-    function updateUI() {
-        // Mode Toggle
-        if (isVoiceMode) {
-            modeToggleButton.textContent = 'Switch to Text Mode';
-            textInputModeDiv.classList.add('hidden');
-            voiceInputModeDiv.classList.remove('hidden');
-        } else {
-            modeToggleButton.textContent = 'Switch to Voice Mode';
-            textInputModeDiv.classList.remove('hidden');
-            voiceInputModeDiv.classList.add('hidden');
-        }
-
-        // TTS Toggle
-        ttsToggleButton.textContent = isTTSEnabled ? 'Disable TTS' : 'Enable TTS';
-
-        // Mic Button & Indicator
-        if (isListening) {
-            micButton.textContent = 'Stop';
-            micButton.classList.add('listening');
-            listeningIndicator.classList.remove('hidden');
-        } else {
-            micButton.textContent = 'Start';
-            micButton.classList.remove('listening');
-            listeningIndicator.classList.add('hidden');
-        }
-    }
-
-    function displayError(message) {
-        errorDisplay.textContent = message;
-        // Optional: Clear error after some time
-        // setTimeout(() => { errorDisplay.textContent = ''; }, 5000);
-    }
-
-    // ==== Event Listeners ====
-    function attachEventListeners() {
-        saveKeyButton.addEventListener('click', saveApiKey);
-        apiKeyInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') saveApiKey();
-        });
-
-        modeToggleButton.addEventListener('click', () => {
-            isVoiceMode = !isVoiceMode;
-            // Stop listening if switching away from voice mode
-            if (!isVoiceMode && isListening) {
-                stopListening();
-            }
-            updateUI();
-        });
-
-        ttsToggleButton.addEventListener('click', () => {
-            isTTSEnabled = !isTTSEnabled;
-            updateUI();
-        });
-
-        clearHistoryButton.addEventListener('click', () => {
-            if (confirm("Are you sure you want to clear the entire conversation history?")) {
-                conversationHistory = [];
-                localStorage.removeItem('conversationHistory');
-                renderHistory();
-                displayError("History cleared.");
-            }
-        });
-
-        sendButton.addEventListener('click', handleTextInput);
-        textInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) { // Send on Enter, allow Shift+Enter for newline
-                e.preventDefault(); // Prevent default newline behavior
-                handleTextInput();
-            }
-        });
-
-        micButton.addEventListener('click', () => {
-            if (!isListening) {
-                startListening();
-            } else {
-                stopListening();
-            }
-        });
-    }
-
-    // ==== Core Logic ====
-
-    function handleTextInput() {
-        const messageText = textInput.value.trim();
-        if (messageText) {
-            handleUserMessage(messageText);
-            textInput.value = ''; // Clear input field
-            textInput.style.height = 'auto'; // Reset height after sending
-            textInput.style.height = textInput.scrollHeight + 'px'; // Adjust if needed
-        }
-    }
-
-     async function handleUserMessage(text) {
-        if (!OPENAI_API_KEY) {
-            displayError("API Key not set. Please enter your OpenAI API Key.");
-            return;
-        }
-        displayError(""); // Clear previous errors
-
-        addDailyMarkerIfNeeded(); // Add marker before adding the user message
-
-        const userMessage = { role: 'user', content: text, timestamp: new Date() };
-        conversationHistory.push(userMessage);
-        addMessageToTranscript(userMessage.role, userMessage.content);
-        saveHistory();
-
-        // Disable input while processing
-        setInputsDisabled(true);
-
-        try {
-            await getOpenAIResponse();
-        } catch (error) {
-            console.error("Error getting OpenAI response:", error);
-            displayError(`Error: ${error.message || 'Failed to get response'}`);
-            // Optionally add an error message to the transcript
-             addMessageToTranscript('system', `Error communicating with OpenAI: ${error.message}`, true);
-        } finally {
-             setInputsDisabled(false); // Re-enable inputs
-        }
-    }
-
-    async function getOpenAIResponse() {
-        // Prepare messages for the API, including the system prompt
-        const messagesForAPI = [
-            { role: "system", content: SYSTEM_PROMPT },
-            // Include only user/assistant messages from history for the API call
-            ...conversationHistory
-                .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-                .map(msg => ({ role: msg.role, content: msg.content }))
-        ];
-
-        console.log("Sending to OpenAI Chat:", messagesForAPI);
-
-        try {
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${OPENAI_API_KEY}`
-                },
-                body: JSON.stringify({
-                    model: CHAT_MODEL,
-                    messages: messagesForAPI,
-                    // max_tokens: 150 // Optional: Limit response length
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error("OpenAI API Error:", errorData);
-                throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log("Received from OpenAI Chat:", data);
-
-            if (data.choices && data.choices.length > 0) {
-                const assistantMessageContent = data.choices[0].message.content.trim();
-                const assistantMessage = {
-                    role: 'assistant',
-                    content: assistantMessageContent,
-                    timestamp: new Date()
-                };
-
-                conversationHistory.push(assistantMessage);
-                addMessageToTranscript(assistantMessage.role, assistantMessage.content);
-                saveHistory();
-
-                if (isTTSEnabled) {
-                    await speakText(assistantMessageContent);
-                }
-            } else {
-                throw new Error("No response choices received from OpenAI.");
-            }
-
-        } catch (error) {
-            console.error("Error fetching OpenAI Chat completion:", error);
-            displayError(`Chat API Error: ${error.message}`);
-             // Optionally add an error message to the transcript
-             addMessageToTranscript('system', `Error getting chat response: ${error.message}`, true);
-        }
-    }
-
-    async function speakText(text) {
-        if (!OPENAI_API_KEY) {
-            displayError("API Key not set for TTS.");
-            return;
-        }
-        if (!text) return;
-
-        console.log("Sending to OpenAI TTS:", text.substring(0, 100) + "..."); // Log beginning of text
-        setInputsDisabled(true); // Disable input while speaking
-
-        try {
-            const response = await fetch('https://api.openai.com/v1/audio/speech', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${OPENAI_API_KEY}`
-                },
-                body: JSON.stringify({
-                    model: TTS_MODEL,
-                    input: text,
-                    voice: 'alloy' // Choose a voice: alloy, echo, fable, onyx, nova, shimmer
-                    // response_format: 'mp3' // Default is mp3
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error("OpenAI TTS API Error:", errorData);
-                throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
-            }
-
-            const audioBlob = await response.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
-            const audio = new Audio(audioUrl);
-
-            // Play audio and re-enable inputs when finished
-            audio.play();
-            audio.onended = () => {
-                URL.revokeObjectURL(audioUrl);
-                setInputsDisabled(false); // Re-enable after speech finishes
-                console.log("TTS playback finished.");
-            };
-            audio.onerror = (err) => {
-                 console.error("Error playing TTS audio:", err);
-                 displayError("Error playing audio.");
-                 URL.revokeObjectURL(audioUrl);
-                 setInputsDisabled(false); // Re-enable on error too
-            };
-
-
-        } catch (error) {
-            console.error("Error fetching OpenAI TTS:", error);
-            displayError(`TTS API Error: ${error.message}`);
-            setInputsDisabled(false); // Re-enable on fetch error
-        }
-    }
-
-    async function startListening() {
-        if (!OPENAI_API_KEY) {
-            displayError("API Key not set. Cannot start listening.");
-            return;
-        }
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            displayError("Microphone access (getUserMedia) is not supported by your browser.");
-            return;
-        }
-
-        displayError(""); // Clear previous errors
-        audioChunks = []; // Reset audio chunks
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            // Log the selected audio track to potentially identify Bluetooth mic
-            const audioTracks = stream.getAudioTracks();
-            if (audioTracks.length > 0) {
-                console.log("Using audio input device:", audioTracks[0].label || "Default Mic");
-            }
-
-            // Use 'audio/webm' or 'audio/ogg' if available, as they are often well-supported
-            // MP3 recording directly in the browser is tricky. Send WAV or WEBM to OpenAI.
-            const options = { mimeType: 'audio/webm;codecs=opus' }; // Try webm first
-             try {
-                mediaRecorder = new MediaRecorder(stream, options);
-            } catch (e1) {
-                console.warn("WebM Opus mimeType failed, trying default:", e1.message);
-                try {
-                    // Fallback to browser default (might be WAV or other)
-                    mediaRecorder = new MediaRecorder(stream);
-                } catch (e2) {
-                     console.error("Failed to create MediaRecorder:", e2);
-                     displayError("Could not start recording. Check microphone permissions and browser support.");
-                     return; // Exit if MediaRecorder fails completely
-                }
-            }
-
-            console.log("Using mimeType:", mediaRecorder.mimeType);
-
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunks.push(event.data);
-                    console.log("Audio chunk received, size:", event.data.size);
-                }
-            };
-
-            mediaRecorder.onstop = async () => {
-                console.log("Recording stopped. Total chunks:", audioChunks.length);
-                stream.getTracks().forEach(track => track.stop()); // Stop the mic stream track
-
-                if (audioChunks.length === 0) {
-                    console.warn("No audio data recorded.");
-                    displayError("No audio data was captured.");
-                    setInputsDisabled(false); // Re-enable inputs
-                    return;
-                }
-
-                // Determine file extension based on mimeType
-                let fileExtension = 'webm'; // Default assumption
-                if (mediaRecorder.mimeType.includes('wav')) {
-                    fileExtension = 'wav';
-                } else if (mediaRecorder.mimeType.includes('ogg')) {
-                    fileExtension = 'ogg';
-                } // Add more checks if needed for other types
-
-                const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
-                const audioFile = new File([audioBlob], `recording.${fileExtension}`, { type: mediaRecorder.mimeType });
-
-                console.log(`Created audio blob, size: ${audioBlob.size}, type: ${audioBlob.type}`);
-                audioChunks = []; // Clear chunks after creating blob
-
-                // Disable inputs while transcribing
-                setInputsDisabled(true);
-                displayError("Transcribing audio..."); // Indicate processing
-
-                try {
-                    await transcribeAudio(audioFile);
-                } catch (error) {
-                    console.error("Transcription error:", error);
-                    displayError(`Transcription failed: ${error.message}`);
-                } finally {
-                    // Re-enable inputs should happen within transcribeAudio or its downstream calls
-                    // but add a fallback here just in case.
-                    setInputsDisabled(false);
-                    displayError(""); // Clear transcribing message
-                }
-            };
-
-            mediaRecorder.onerror = (event) => {
-                console.error("MediaRecorder error:", event.error);
-                displayError(`Recording Error: ${event.error.name} - ${event.error.message}`);
-                isListening = false;
-                updateUI();
-                setInputsDisabled(false);
-                stream.getTracks().forEach(track => track.stop()); // Ensure mic is off
-            };
-
-            mediaRecorder.start();
-            isListening = true;
-            updateUI();
-            setInputsDisabled(true); // Disable other inputs while listening
-            console.log("MediaRecorder started.");
-
-        } catch (err) {
-            console.error("Error accessing microphone:", err);
-            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                displayError("Microphone permission denied. Please allow access in browser settings.");
-            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-                 displayError("No microphone found. Please ensure a microphone is connected and enabled.");
-            } else {
-                displayError(`Error accessing microphone: ${err.name}`);
-            }
-            isListening = false; // Ensure state is correct
-            updateUI();
-            setInputsDisabled(false);
-        }
-    }
-
-    function stopListening() {
-        if (mediaRecorder && isListening) {
-            console.log("Stopping MediaRecorder...");
-            mediaRecorder.stop(); // This triggers the 'onstop' event
-            isListening = false; // State update
-            updateUI();
-            // Inputs will be re-enabled after transcription/response cycle finishes
-        } else {
-            console.warn("Stop listening called but not currently listening or recorder unavailable.");
-            isListening = false; // Ensure state is correct
-            updateUI();
-            setInputsDisabled(false); // Re-enable if stopped unexpectedly
-        }
-    }
-
-    async function transcribeAudio(audioFile) {
-        if (!OPENAI_API_KEY) {
-            displayError("API Key not set for STT.");
-            setInputsDisabled(false); // Re-enable
-            return;
-        }
-        if (!audioFile || audioFile.size === 0) {
-             displayError("No audio file to transcribe.");
-             setInputsDisabled(false); // Re-enable
-             return;
-        }
-
-        console.log("Sending to OpenAI STT:", audioFile.name, audioFile.size, audioFile.type);
-
-        const formData = new FormData();
-        formData.append('file', audioFile);
-        formData.append('model', STT_MODEL);
-        // formData.append('language', 'en'); // Optional: Specify language ISO-639-1 code
-        // formData.append('response_format', 'json'); // Or 'text', 'srt', 'vtt', 'verbose_json'
-
-        try {
-            const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${OPENAI_API_KEY}`
-                    // Content-Type is set automatically by FormData
-                },
-                body: formData
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                console.error("OpenAI STT API Error:", errorData);
-                throw new Error(errorData.error?.message || `HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log("Received from OpenAI STT:", data);
-            const transcribedText = data.text.trim();
-
-            if (transcribedText) {
-                displayError(""); // Clear "Transcribing..." message
-                // Handle the transcribed text as a user message
-                await handleUserMessage(transcribedText);
-            } else {
-                displayError("Transcription returned empty text.");
-                setInputsDisabled(false); // Re-enable if transcription is empty
-            }
-
-        } catch (error) {
-            console.error("Error fetching OpenAI STT:", error);
-            displayError(`STT API Error: ${error.message}`);
-            setInputsDisabled(false); // Re-enable on error
-        }
-    }
-
-     function setInputsDisabled(disabled) {
-        textInput.disabled = disabled;
-        sendButton.disabled = disabled;
-        micButton.disabled = disabled;
-        modeToggleButton.disabled = disabled;
-        ttsToggleButton.disabled = disabled;
-        clearHistoryButton.disabled = disabled;
-        // Keep API key input enabled status separate
-        // apiKeyInput.disabled = disabled || (!!OPENAI_API_KEY); // Only disable if key is set OR processing
-        // saveKeyButton.disabled = disabled || (!!OPENAI_API_KEY);
-    }
-
-    // Adjust textarea height dynamically
-    textInput.addEventListener('input', () => {
-        textInput.style.height = 'auto'; // Reset height
-        textInput.style.height = textInput.scrollHeight + 'px'; // Set to content height
     });
 
+    // Auto-scroll to bottom
+    transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+}
 
-    // ==== Start the App ====
-    initializeApp();
-});
+
+// --- State Management & Persistence ---
+function loadApiKey() {
+    const savedKey = sessionStorage.getItem('openaiApiKey');
+    if (savedKey) {
+        apiKey = savedKey;
+        console.log("API Key loaded from session storage.");
+    } else {
+        console.log("API Key not found in session storage.");
+    }
+}
+
+function saveApiKey() {
+    const key = apiKeyInput.value.trim();
+    if (key) {
+        apiKey = key;
+        sessionStorage.setItem('openaiApiKey', key);
+        console.log("API Key saved to session storage.");
+        updateUI(); // Reflect saved state
+        setStatus("API Key saved for this session.");
+    } else {
+        setStatus("Please enter an API Key.", true);
+    }
+}
+
+function loadHistory() {
+    const savedHistory = localStorage.getItem('chatHistory');
+    if (savedHistory) {
+        try {
+            conversationHistory = JSON.parse(savedHistory);
+            // Find the date of the last message for daily marker logic
+            if (conversationHistory.length > 0) {
+                 const lastMsg = conversationHistory[conversationHistory.length - 1];
+                 if (lastMsg.timestamp) {
+                     lastMessageDate = new Date(lastMsg.timestamp);
+                 }
+            }
+            console.log("Conversation history loaded.");
+        } catch (error) {
+            console.error("Failed to parse saved history:", error);
+            localStorage.removeItem('chatHistory'); // Clear corrupted data
+            conversationHistory = [];
+            lastMessageDate = null;
+        }
+    }
+}
+
+function saveHistory() {
+    try {
+        localStorage.setItem('chatHistory', JSON.stringify(conversationHistory));
+    } catch (error) {
+        console.error("Failed to save history (maybe storage limit reached?):", error);
+        setStatus("Error saving history. Storage might be full.", true);
+    }
+}
+
+function clearHistory() {
+    if (confirm("Are you sure you want to clear the entire conversation history?")) {
+        conversationHistory = [];
+        lastMessageDate = null;
+        localStorage.removeItem('chatHistory');
+        renderTranscript();
+        setStatus("History cleared.");
+        console.log("History cleared.");
+    }
+}
+
+// --- Core Functionality Toggles ---
+function toggleMode() {
+    if (isListening) {
+        setStatus("Stop recording before switching modes.", true);
+        return;
+    }
+    currentMode = (currentMode === 'text') ? 'voice' : 'text';
+    console.log(`Switched to ${currentMode} mode.`);
+    setStatus(`Switched to ${currentMode} mode.`);
+    updateUI();
+}
+
+function toggleTTS() {
+    isTTSenabled = !isTTSenabled;
+    console.log(`TTS ${isTTSenabled ? 'Enabled' : 'Disabled'}.`);
+    setStatus(`TTS ${isTTSenabled ? 'Enabled' : 'Disabled'}.`);
+    updateUI();
+}
+
+// --- User Input Handling ---
+function handleTextInput() {
+    const text = textInput.value.trim();
+    if (!text) return; // Ignore empty input
+
+    if (!apiKey) {
+        setStatus("Please save your OpenAI API Key first.", true);
+        return;
+    }
+
+    addMessageToHistory('user', text);
+    textInput.value = ''; // Clear input field
+    getAssistantResponse();
+}
+
+function addMessageToHistory(role, content) {
+    const timestamp = new Date().toISOString(); // Add timestamp for daily markers
+
+    // --- Daily Marker Logic ---
+    const now = new Date();
+    let markerText = null;
+    if (!lastMessageDate || now.toDateString() !== lastMessageDate.toDateString()) {
+        if (role === 'user') { // Only add marker before the first user message of the day
+             markerText = `It is now ${now.toLocaleTimeString()}, on ${now.toLocaleDateString()}.`;
+             console.log("Adding daily marker.");
+             // We'll prepend this to the user's *content* for simplicity in the OpenAI prompt
+             content = markerText + "\n\n" + content;
+        }
+        lastMessageDate = now; // Update the date tracker
+    }
+    // --- End Daily Marker Logic ---
+
+
+    conversationHistory.push({ role, content, timestamp }); // Store with timestamp
+    renderTranscript();
+    saveHistory();
+}
+
+
+// --- Voice Recording (Web Audio API) ---
+async function toggleRecording() {
+    if (!apiKey) {
+        setStatus("Please save your OpenAI API Key first.", true);
+        return;
+    }
+
+    if (isListening) {
+        stopRecording();
+    } else {
+        await startRecording();
+    }
+    updateUI();
+}
+
+async function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Media Devices API not supported on this browser.", true);
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = []; // Reset chunks
+
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = handleRecordingStop;
+
+        mediaRecorder.onerror = (event) => {
+            setStatus(`Recorder Error: ${event.error.message}`, true);
+            isListening = false;
+            updateUI();
+        };
+
+        mediaRecorder.start();
+        isListening = true;
+        console.log("Recording started.");
+
+    } catch (err) {
+        setStatus(`Mic Access Error: ${err.message}`, true);
+        console.error("Error accessing microphone:", err);
+        isListening = false; // Ensure state is correct
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop(); // This will trigger the 'onstop' event
+        // Stop microphone tracks to turn off indicator
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        isListening = false;
+        console.log("Recording stopped.");
+        setStatus("Processing audio..."); // Indicate processing
+    }
+    updateUI(); // Update button text immediately
+}
+
+async function handleRecordingStop() {
+    console.log("handleRecordingStop triggered");
+    if (audioChunks.length === 0) {
+        console.warn("No audio data recorded.");
+        setStatus("No audio detected.", true);
+        return;
+    }
+
+    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' }); // Adjust type if needed, webm/ogg often work
+    audioChunks = []; // Clear chunks for next recording
+
+    // --- Call OpenAI STT API ---
+    setStatus("Transcribing audio...");
+    try {
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'recording.webm'); // Filename is required by API
+        formData.append('model', OPENAI_API_STT_MODEL);
+        // formData.append('language', 'en'); // Optional: Specify language
+
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                // 'Content-Type': 'multipart/form-data' is set automatically by fetch with FormData
+            },
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error?.message || `HTTP error! status: ${response.status}`);
+        }
+
+        const transcribedText = result.text;
+        setStatus("Transcription complete.");
+        console.log("Transcription:", transcribedText);
+
+        if (transcribedText) {
+            addMessageToHistory('user', transcribedText);
+            getAssistantResponse(); // Get response after successful transcription
+        } else {
+            setStatus("Transcription empty.", true);
+        }
+
+    } catch (error) {
+        console.error('STT API Error:', error);
+        setStatus(`STT Error: ${error.message}`, true);
+    } finally {
+         // Ensure status is reset if nothing else sets it
+         if (statusIndicator.textContent === 'Transcribing audio...') {
+            setStatus('Ready');
+         }
+    }
+}
+
+
+// --- OpenAI API Calls ---
+
+async function getAssistantResponse() {
+    if (!apiKey) {
+        setStatus("API Key not set.", true);
+        return;
+    }
+    setStatus("Assistant thinking...");
+
+    // Prepare messages for the API (include system prompt)
+    const messagesPayload = [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...conversationHistory.map(({ role, content }) => ({ role, content })) // Map to required format
+    ];
+
+    try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: OPENAI_API_CHAT_MODEL,
+                messages: messagesPayload
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.choices || result.choices.length === 0) {
+             const errorMsg = result.error?.message || `HTTP error! status: ${response.status}`;
+             throw new Error(errorMsg);
+        }
+
+        const assistantMessage = result.choices[0].message.content.trim();
+        addMessageToHistory('assistant', assistantMessage);
+        setStatus("Ready"); // Reset status after successful response
+
+        if (isTTSenabled && assistantMessage) {
+            speakText(assistantMessage);
+        }
+
+    } catch (error) {
+        console.error('Chat API Error:', error);
+        setStatus(`Chat Error: ${error.message}`, true);
+        // Optionally remove the last user message if the API call failed?
+    }
+}
+
+async function speakText(text) {
+    if (!apiKey) {
+        setStatus("API Key not set for TTS.", true);
+        return;
+    }
+    if (!text) return;
+
+    setStatus("Generating audio...");
+    try {
+        const response = await fetch('https://api.openai.com/v1/audio/speech', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: OPENAI_API_TTS_MODEL,
+                input: text,
+                voice: "alloy" // Choose a voice (alloy, echo, fable, onyx, nova, shimmer)
+                // response_format: "mp3" // Default is mp3
+            })
+        });
+
+        if (!response.ok) {
+            // Try to get error message from OpenAI if possible
+            let errorMsg = `TTS HTTP error! status: ${response.status}`;
+             try {
+                 const errorResult = await response.json();
+                 errorMsg = errorResult.error?.message || errorMsg;
+             } catch (e) { /* Ignore parsing error if body isn't JSON */ }
+             throw new Error(errorMsg);
+        }
+
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+
+        setStatus("Speaking..."); // Indicate playback start
+        audio.play();
+
+        audio.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            console.log("TTS playback finished.");
+             // Reset status only if it was 'Speaking...'
+             if (statusIndicator.textContent === 'Speaking...') {
+                 setStatus("Ready");
+             }
+        };
+        audio.onerror = (e) => {
+             URL.revokeObjectURL(audioUrl);
+             console.error("Error playing TTS audio:", e);
+             setStatus("Error playing audio.", true);
+        };
+
+
+    } catch (error) {
+        console.error('TTS API Error:', error);
+        setStatus(`TTS Error: ${error.message}`, true);
+    }
+}
